@@ -126,13 +126,10 @@ def test_snapshot_wal_db_from_readonly_dir(tmp_path):
     dbdir.mkdir()
     dbfile = dbdir / "LibationContext.db"
     make_db(dbfile, "B08G9PRS1K", ["18580606011"])
-    writer = sqlite3.connect(dbfile)
+    writer = sqlite3.connect(dbfile)  # stays open, like the live Libation app
     writer.execute("PRAGMA journal_mode=WAL")
     writer.execute("INSERT INTO Books VALUES (2, 'B000000002', 'Wal Book')")
     writer.commit()
-    holder = sqlite3.connect(dbfile)  # keeps -wal from being checkpointed away
-    holder.execute("SELECT 1")
-    writer.close()
     assert dbfile.with_name(dbfile.name + "-wal").exists()
     dbdir.chmod(0o555)
     try:
@@ -141,7 +138,7 @@ def test_snapshot_wal_db_from_readonly_dir(tmp_path):
         snap.close()
     finally:
         dbdir.chmod(0o755)
-        holder.close()
+        writer.close()
 
 
 def test_moves_liberated_fiction_book(tmp_path):
