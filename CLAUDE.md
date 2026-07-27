@@ -11,7 +11,11 @@ README.md for user-facing docs.
 
 ## Status (July 2026)
 
-**Live in production** on Josh's NAS (`neo`) as of 2026-07-26.
+**Live in production** on Josh's NAS (`neo`) as of 2026-07-26, and
+**verified end-to-end with real purchases** the same night: two Audible
+purchases (plus a bundled short story) liberated, classified fiction, and
+shelved with zero manual steps. Expected latency: up to 1h for Libation's
+scan loop + 10 min write-quiet + up to 15 min for the sort cycle.
 
 - v0.1.0 — initial release
 - v0.1.1 — DB snapshot via scratch-dir copy (Libation's DB is WAL-mode; WAL
@@ -69,6 +73,19 @@ Deploy: `make neo-docker media-server` from nas-infra.
 Watch for: chained shell commands that pipe pytest into `tail` mask its exit
 code — a broken-test commit got tagged once this way. Run tests standalone
 before tagging.
+
+## Operational notes
+
+- To trigger an immediate liberation instead of waiting for the hourly loop:
+  `docker restart libation` (its entrypoint scans on start). Restarting
+  `libation-sort` likewise starts a sort cycle immediately, but the
+  write-quiet window still applies.
+- A handful of old library entries are permanently license-denied by Audible
+  ("no ownership") — every scan re-attempts and re-logs them. Expected noise;
+  they never produce files and never reach staging. Don't chase these logs.
+- To predict where a book will be filed without waiting:
+  `docker exec libation-sort python -c '...'` importing `classify` against
+  the live DB — see the validation examples in the repo history.
 
 ## Open items
 
