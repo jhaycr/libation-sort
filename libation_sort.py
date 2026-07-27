@@ -28,6 +28,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 import tomllib
 import urllib.request
@@ -142,14 +143,27 @@ def target_dir(decision: Decision, rules: dict) -> str:
 # --------------------------------------------------------------------------
 
 def open_db_snapshot(db_path: Path) -> sqlite3.Connection:
-    """Return an in-memory copy of the DB so Libation never sees our locks."""
-    src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
-    try:
-        snap = sqlite3.connect(":memory:")
-        src.backup(snap)
-        return snap
-    finally:
-        src.close()
+    """Load a point-in-time copy of the DB into memory.
+
+    The live file is copied (with its -wal sidecar) to a scratch dir first:
+    Libation keeps the DB in WAL mode, which SQLite cannot open from a
+    read-only mount (it needs to create -shm/-wal), and we must never hold
+    locks against the live file. A torn copy only fails this cycle; the
+    next one retries.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_db = Path(tmp) / db_path.name
+        shutil.copy2(db_path, tmp_db)
+        wal = db_path.with_name(db_path.name + "-wal")
+        if wal.exists():
+            shutil.copy2(wal, tmp_db.with_name(tmp_db.name + "-wal"))
+        src = sqlite3.connect(tmp_db)
+        try:
+            snap = sqlite3.connect(":memory:")
+            src.backup(snap)
+            return snap
+        finally:
+            src.close()
 
 
 def fetch_book(db: sqlite3.Connection, asin: str) -> Book | None:

@@ -119,6 +119,31 @@ def make_config(tmp_path: Path, **overrides) -> ls.Config:
     return ls.Config(**defaults)
 
 
+def test_snapshot_wal_db_from_readonly_dir(tmp_path):
+    # Libation keeps its DB in WAL mode and we mount it read-only: the
+    # snapshot must work with an unwritable directory and a live -wal file.
+    dbdir = tmp_path / "db"
+    dbdir.mkdir()
+    dbfile = dbdir / "LibationContext.db"
+    make_db(dbfile, "B08G9PRS1K", ["18580606011"])
+    writer = sqlite3.connect(dbfile)
+    writer.execute("PRAGMA journal_mode=WAL")
+    writer.execute("INSERT INTO Books VALUES (2, 'B000000002', 'Wal Book')")
+    writer.commit()
+    holder = sqlite3.connect(dbfile)  # keeps -wal from being checkpointed away
+    holder.execute("SELECT 1")
+    writer.close()
+    assert dbfile.with_name(dbfile.name + "-wal").exists()
+    dbdir.chmod(0o555)
+    try:
+        snap = ls.open_db_snapshot(dbfile)
+        assert snap.execute("SELECT count(*) FROM Books").fetchone()[0] == 2
+        snap.close()
+    finally:
+        dbdir.chmod(0o755)
+        holder.close()
+
+
 def test_moves_liberated_fiction_book(tmp_path):
     asin = "B08G9PRS1K"
     make_db(tmp_path / "LibationContext.db", asin, ["18580606011", "123"])
