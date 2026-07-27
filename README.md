@@ -22,17 +22,50 @@ On an interval, libation-sort:
 3. Skips anything not yet marked **Liberated**, or with file writes in the last
    `QUIET_SECONDS` — in-progress downloads are never touched.
 4. Classifies the book from its Audible category ladders, contributors, and
-   series (rules in [`rules.toml`](rules.toml)):
-   - **courses** — anything from The Great Courses (publisher or series), plus
-     language-learning titles (Pimsleur etc.)
-   - **autobiographies** — Biographies & Memoirs ladders with a memoir-type
-     sub-category (biographies *of others* fall through to nonfiction)
-   - **fiction** — fiction-dominant category roots; children's/teen titles land
-     here too but are flagged in the notification as candidates for a manually
-     curated `kids/` folder
-   - **nonfiction** — everything else
-5. Moves the folder into `LIBRARY_DIR/<category>/` and (optionally) posts a
+   series using an ordered, first-match-wins rule list in
+   [`rules.toml`](rules.toml) — your categories, your rules.
+5. Moves the folder into `LIBRARY_DIR/<target>/` and (optionally) posts a
    summary to an [Apprise](https://github.com/caronc/apprise-api) endpoint.
+
+## Rules
+
+Each `[[rule]]` names a `target` directory and one or more matchers; the first
+matching rule with a target wins, and `fallback` catches the rest. A rule with
+`flags` but no `target` only annotates (its flags ride along to the eventual
+match and appear in notifications). Matchers within a rule are OR'd:
+
+```toml
+fallback = "nonfiction"
+
+[flag_messages]
+review = "children's/teen category — move to kids/ if it belongs there"
+
+[[rule]]
+name = "the-great-courses"
+target = "courses"
+match.contributors = ["The Great Courses"]     # publisher/author/narrator
+match.series_prefixes = ["The Great Courses"]  # series name starts-with
+
+[[rule]]
+name = "maybe-kids"                    # annotation-only: no target
+flags = ["review"]
+match.category_roots = ["18572091011", "18580715011"]
+
+[[rule]]
+name = "memoirs"
+target = "autobiographies"
+match.ladder_prefixes = [["18571951011", "18571984011"]]  # root > sub-category
+
+[[rule]]
+name = "fiction"
+target = "fiction"
+match.category_roots = ["18580606011", "18574426011"]  # ladder root ids
+```
+
+The shipped [`rules.toml`](rules.toml) implements a
+fiction / nonfiction / autobiographies / courses split with a review flag for
+children's/teen titles — start from it and rename, reorder, or replace the
+rules to match your own library layout.
 
 Folders it can't resolve (ASIN missing from the DB, destination collision)
 stay in staging and are reported once, not every cycle.

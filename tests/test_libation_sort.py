@@ -66,6 +66,59 @@ class TestClassify:
         assert ls.classify(book(), RULES).category == "nonfiction"
 
 
+class TestGeneralizedRules:
+    def test_first_matching_target_wins(self):
+        rules = {
+            "fallback": "misc",
+            "rule": [
+                {"name": "a", "target": "shelf-a", "match": {"category_roots": ["1"]}},
+                {"name": "b", "target": "shelf-b", "match": {"category_roots": ["1"]}},
+            ],
+        }
+        assert ls.classify(book(ladders=[["1"]]), rules).category == "shelf-a"
+
+    def test_annotation_rule_adds_flag_and_continues(self):
+        rules = {
+            "fallback": "misc",
+            "rule": [
+                {"name": "note", "flags": ["check-me"], "match": {"category_roots": ["1"]}},
+                {"name": "shelve", "target": "stuff", "match": {"category_roots": ["1"]}},
+            ],
+        }
+        d = ls.classify(book(ladders=[["1"]]), rules)
+        assert d.category == "stuff"
+        assert d.flags == ["check-me"]
+
+    def test_arbitrary_target_names_are_directories(self):
+        rules = {
+            "fallback": "everything-else",
+            "rule": [{"name": "r", "target": "true-crime", "match": {"category_roots": ["9"]}}],
+        }
+        assert ls.classify(book(ladders=[["9"]]), rules).category == "true-crime"
+        assert ls.classify(book(ladders=[["8"]]), rules).category == "everything-else"
+
+
+class TestValidateRules:
+    def test_shipped_rules_file_is_valid(self):
+        ls.validate_rules(RULES)
+
+    def test_rule_without_match_rejected(self):
+        with pytest.raises(ValueError, match="rule #1"):
+            ls.validate_rules({"rule": [{"name": "x", "target": "t"}]})
+
+    def test_unknown_matcher_rejected(self):
+        with pytest.raises(ValueError, match="unknown matcher"):
+            ls.validate_rules({"rule": [{"name": "x", "target": "t", "match": {"genres": ["a"]}}]})
+
+    def test_rule_without_target_or_flags_rejected(self):
+        with pytest.raises(ValueError, match="target"):
+            ls.validate_rules({"rule": [{"name": "x", "match": {"category_roots": ["1"]}}]})
+
+    def test_empty_rules_rejected(self):
+        with pytest.raises(ValueError, match="at least one"):
+            ls.validate_rules({})
+
+
 # ---------------------------------------------------------------------------
 # End-to-end: synthetic Libation DB + staging tree
 # ---------------------------------------------------------------------------

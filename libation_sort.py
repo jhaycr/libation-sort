@@ -95,47 +95,60 @@ class Config:
 # Classification
 # --------------------------------------------------------------------------
 
+MATCHERS = ("contributors", "series_prefixes", "category_roots", "ladder_prefixes")
+
+
+def rule_matches(book: Book, match: dict) -> bool:
+    """True if ANY of the rule's matchers hit."""
+    if names := match.get("contributors"):
+        if set(book.contributors) & set(names):
+            return True
+    if prefixes := match.get("series_prefixes"):
+        if any(series.startswith(tuple(prefixes)) for series in book.series):
+            return True
+    if roots := match.get("category_roots"):
+        if {ladder[0] for ladder in book.ladders if ladder} & set(roots):
+            return True
+    for prefix in match.get("ladder_prefixes", []):
+        if any(ladder[: len(prefix)] == list(prefix) for ladder in book.ladders):
+            return True
+    return False
+
+
 def classify(book: Book, rules: dict) -> Decision:
-    """Map a book to a category using the precedence rules in rules.toml.
+    """Evaluate the ordered rule list; first match with a target wins.
 
-    Order matters: publisher/series beats category ladders (a Great Courses
-    history lecture is a course, not nonfiction), and the memoir check beats
-    the fiction roots (celebrity memoirs often also carry a Comedy ladder).
+    Rules with flags but no target are annotation-only: they add their
+    flags and evaluation continues.
     """
-    courses = rules.get("courses", {})
-    autob = rules.get("autobiographies", {})
-    fiction = rules.get("fiction", {})
-    fallback = rules.get("fallback", {}).get("category", "nonfiction")
-
-    if set(book.contributors) & set(courses.get("contributors", [])):
-        return Decision("courses")
-    prefixes = tuple(courses.get("series_prefixes", []))
-    if prefixes and any(s.startswith(prefixes) for s in book.series):
-        return Decision("courses")
-
     flags: list[str] = []
-    roots = {ladder[0] for ladder in book.ladders if ladder}
-    review_roots = set(fiction.get("review_roots", []))
-    if roots & review_roots:
-        flags.append("review")
-
-    bio_root = autob.get("bio_root")
-    memoir_subs = set(autob.get("memoir_subcategories", []))
-    for ladder in book.ladders:
-        if len(ladder) >= 2 and ladder[0] == bio_root and ladder[1] in memoir_subs:
-            return Decision("autobiographies", flags)
-
-    if roots & (set(fiction.get("category_roots", [])) | review_roots):
-        return Decision("fiction", flags)
-
-    if roots & set(courses.get("category_roots", [])):
-        return Decision("courses", flags)
-
-    return Decision(fallback, flags)
+    for rule in rules.get("rule", []):
+        if not rule_matches(book, rule.get("match", {})):
+            continue
+        for flag in rule.get("flags", []):
+            if flag not in flags:
+                flags.append(flag)
+        if target := rule.get("target"):
+            return Decision(target, flags)
+    return Decision(rules.get("fallback", "unsorted"), flags)
 
 
-def target_dir(decision: Decision, rules: dict) -> str:
-    return rules.get("dirs", {}).get(decision.category, decision.category)
+def validate_rules(rules: dict) -> None:
+    """Fail fast on a malformed rules file, with the rule pinpointed."""
+    if not isinstance(rules.get("fallback", "unsorted"), str):
+        raise ValueError("rules: `fallback` must be a string")
+    rule_list = rules.get("rule", [])
+    if not isinstance(rule_list, list) or not rule_list:
+        raise ValueError("rules: define at least one [[rule]]")
+    for i, rule in enumerate(rule_list):
+        label = f"rule #{i + 1} ({rule.get('name', 'unnamed')})"
+        match = rule.get("match")
+        if not isinstance(match, dict) or not match:
+            raise ValueError(f"{label}: needs a `match` table with at least one matcher")
+        if unknown := set(match) - set(MATCHERS):
+            raise ValueError(f"{label}: unknown matcher(s) {sorted(unknown)}; known: {list(MATCHERS)}")
+        if not rule.get("target") and not rule.get("flags"):
+            raise ValueError(f"{label}: needs a `target` (or `flags` for an annotation-only rule)")
 
 
 # --------------------------------------------------------------------------
@@ -332,7 +345,7 @@ def run_once(cfg: Config, rules: dict) -> list[str]:
                 continue
 
             decision = classify(book, rules)
-            dest_parent = cfg.library_dir / target_dir(decision, rules)
+            dest_parent = cfg.library_dir / decision.category
             dest = dest_parent / folder.name
             if dest.exists():
                 stuck(folder, f"destination already exists: {dest}")
@@ -346,8 +359,8 @@ def run_once(cfg: Config, rules: dict) -> list[str]:
             dest_parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(folder), str(dest))
             line = f"Moved to {dest_parent.name}: {folder.name}"
-            if "review" in decision.flags:
-                line += "  ⚠ children's/teen category — move to kids/ if it belongs there"
+            for flag in decision.flags:
+                line += f"  ⚠ {rules.get('flag_messages', {}).get(flag, flag)}"
             events.append(line)
             log.info("moved %s -> %s (flags=%s)", folder.name, dest_parent, decision.flags)
             reported.pop(folder.name, None)
@@ -370,6 +383,7 @@ def main() -> int:
     )
     cfg = Config.from_env()
     rules = tomllib.loads(cfg.rules_path.read_text())
+    validate_rules(rules)
     log.info(
         "libation-sort starting: staging=%s library=%s db=%s interval=%ss dry_run=%s",
         cfg.staging_dir, cfg.library_dir, cfg.db_path, cfg.interval, cfg.dry_run,

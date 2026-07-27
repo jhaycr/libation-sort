@@ -1,44 +1,75 @@
 # libation-sort classification rules.
 #
-# Categories are decided in this order:
-#   1. courses          — publisher/contributor or series match (The Great Courses),
-#                         or a category root in courses.category_roots (language learning)
-#   2. autobiographies  — a Biographies & Memoirs ladder whose SUB-category is
-#                         memoir-like (bios of others stay in nonfiction)
-#   3. fiction          — any fiction-dominant category root; children's / teen
-#                         roots also land here but carry a "review" flag in the
-#                         notification so they can be hand-moved to kids/
-#   4. fallback         — everything else
+# Rules are evaluated top to bottom; the first matching rule WITH a `target`
+# wins and the book is moved to `<LIBRARY_DIR>/<target>/`. If no rule with a
+# target matches, `fallback` is used. Directory names are taken verbatim from
+# `target`/`fallback` — define whatever categories your library uses.
 #
-# The IDs are Audible category IDs as stored in Libation's LibationContext.db
-# (Categories.AudibleCategoryId). Tune by adding/removing IDs.
+# Matchers (a rule matches if ANY of its matchers hit):
+#   match.contributors    = ["Name", ...]        exact contributor match
+#                                                (authors, narrators, publisher)
+#   match.series_prefixes = ["Prefix", ...]      series name starts-with
+#   match.category_roots  = ["id", ...]          any Audible category ladder
+#                                                starts at one of these ids
+#   match.ladder_prefixes = [["id", "id"], ...]  a ladder starts with this
+#                                                exact id sequence (e.g. a
+#                                                root + specific sub-category)
+#
+# A rule with `flags` and NO `target` is annotation-only: it adds its flags
+# and evaluation continues. Flags are attached to whichever rule eventually
+# assigns the target and surfaced in logs/notifications ([flag_messages]
+# maps a flag to human-readable text).
+#
+# The ids are Audible category IDs as stored in Libation's LibationContext.db
+# (Categories.AudibleCategoryId). See the README for how to inspect yours.
 
-[dirs]
-# Category -> directory name under the library root.
-courses = "courses"
-autobiographies = "autobiographies"
-fiction = "fiction"
-nonfiction = "nonfiction"
+fallback = "nonfiction"
 
-[courses]
-contributors = ["The Great Courses"]
-series_prefixes = ["The Great Courses"]
-# Language learning (Pimsleur and friends)
-category_roots = ["18573267011"]
+[flag_messages]
+review = "children's/teen category — move to kids/ if it belongs there"
 
-[autobiographies]
-# Biographies & Memoirs root
-bio_root = "18571951011"
-# Memoir-type sub-categories (autobiography); other bio subs -> fallback
-memoir_subcategories = ["18571984011", "18572028011", "18572005011"]
+# Anything from The Great Courses is a course, no matter its category ladder.
+[[rule]]
+name = "the-great-courses"
+target = "courses"
+match.contributors = ["The Great Courses"]
+match.series_prefixes = ["The Great Courses"]
 
-[fiction]
-# Fiction-dominant roots: Literature & Fiction, Mystery/Thriller,
-# Romance, and one more fiction root observed in the wild.
-category_roots = ["18580606011", "18574426011", "18574597011", "18580518011"]
-# Children's Audiobooks + Teen & Young Adult: filed as fiction, flagged for
-# manual review (candidates for a hand-curated kids/ folder).
-review_roots = ["18572091011", "18580715011"]
+# Children's Audiobooks / Teen & Young Adult: flag for manual review
+# (kids/ is hand-curated), then keep evaluating — they usually file to
+# fiction below.
+[[rule]]
+name = "maybe-kids"
+flags = ["review"]
+match.category_roots = ["18572091011", "18580715011"]
 
-[fallback]
-category = "nonfiction"
+# Biographies & Memoirs ladders whose sub-category is memoir-like.
+# Biographies OF other people deliberately fall through to the fallback.
+[[rule]]
+name = "memoirs"
+target = "autobiographies"
+match.ladder_prefixes = [
+  ["18571951011", "18571984011"],
+  ["18571951011", "18572028011"],
+  ["18571951011", "18572005011"],
+]
+
+# Fiction-dominant roots: Literature & Fiction, Mystery/Thriller, Romance,
+# plus the children's/teen roots flagged above.
+[[rule]]
+name = "fiction"
+target = "fiction"
+match.category_roots = [
+  "18580606011",
+  "18574426011",
+  "18574597011",
+  "18580518011",
+  "18572091011",
+  "18580715011",
+]
+
+# Language learning (Pimsleur and friends) files with the courses.
+[[rule]]
+name = "language-learning"
+target = "courses"
+match.category_roots = ["18573267011"]
