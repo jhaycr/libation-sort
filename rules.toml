@@ -1,0 +1,44 @@
+# libation-sort classification rules.
+#
+# Categories are decided in this order:
+#   1. courses          — publisher/contributor or series match (The Great Courses),
+#                         or a category root in courses.category_roots (language learning)
+#   2. autobiographies  — a Biographies & Memoirs ladder whose SUB-category is
+#                         memoir-like (bios of others stay in nonfiction)
+#   3. fiction          — any fiction-dominant category root; children's / teen
+#                         roots also land here but carry a "review" flag in the
+#                         notification so they can be hand-moved to kids/
+#   4. fallback         — everything else
+#
+# The IDs are Audible category IDs as stored in Libation's LibationContext.db
+# (Categories.AudibleCategoryId). Tune by adding/removing IDs.
+
+[dirs]
+# Category -> directory name under the library root.
+courses = "courses"
+autobiographies = "autobiographies"
+fiction = "fiction"
+nonfiction = "nonfiction"
+
+[courses]
+contributors = ["The Great Courses"]
+series_prefixes = ["The Great Courses"]
+# Language learning (Pimsleur and friends)
+category_roots = ["18573267011"]
+
+[autobiographies]
+# Biographies & Memoirs root
+bio_root = "18571951011"
+# Memoir-type sub-categories (autobiography); other bio subs -> fallback
+memoir_subcategories = ["18571984011", "18572028011", "18572005011"]
+
+[fiction]
+# Fiction-dominant roots: Literature & Fiction, Mystery/Thriller,
+# Romance, and one more fiction root observed in the wild.
+category_roots = ["18580606011", "18574426011", "18574597011", "18580518011"]
+# Children's Audiobooks + Teen & Young Adult: filed as fiction, flagged for
+# manual review (candidates for a hand-curated kids/ folder).
+review_roots = ["18572091011", "18580715011"]
+
+[fallback]
+category = "nonfiction"
